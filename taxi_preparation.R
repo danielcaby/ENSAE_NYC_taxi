@@ -13,9 +13,11 @@ library(dplyr)
 # chargement des données
 ################################################################################################################################ 
 # Taxi train ==> https://www.kaggle.com/c/nyc-taxi-trip-duration
-taxi <- read.csv2(file='data/train.csv', sep=",", dec=".")
+#taxi <- read.csv2(file='data/train.csv', sep=",", dec=".")
+taxi <- read_csv("data/NYC_taxi_2016.csv")
 # Shape file arrondissement et zip code ==> https://earthworks.stanford.edu/catalog/nyu_2451_34509
-nycShapeFile <- geojson_sf('data/shape/nyu-2451-34509-geojson.json')
+#nycShapeFile <- geojson_sf('data/shape/nyu-2451-34509-geojson.json')
+nycShapeFile <- geojson_sf("data/nyu-2451-34509-geojson.json")
 # Météo ==> package RIEM mais proxy EDF veut pas alors alors la source direct ==> https://mesonet.agron.iastate.edu/request/download.phtml
 # Extraction manuelle des données météo sur les 4 aéroports -JRB, LGA, NYC, JFK- les plus proches de NYC
 nycWeather <- read.csv2(file="data/NYC_weather.csv", sep=",", dec=".")
@@ -110,7 +112,7 @@ taxi <- left_join(taxi, aggWeather, by=c("year"="wYear","month"="wMonth","day"="
 # Events / todo : voir fichier Louis Pierre ?
 
 # Sauvegarde du jeu de données
-write.csv(taxi, 'taxiTrainDataSet.csv')
+write.table(taxi,file="data/taxiTrainDataSet.csv",sep=";", row.names=FALSE)
 save.image(file = 'taxiTrainDataSet.rdata')
 
 # Filtrage données / todo
