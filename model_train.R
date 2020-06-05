@@ -27,7 +27,7 @@ data <- data[data$trip_duration<min(valeurs_aberrantes),]
 
 
 ### Main features
-features  <- c("month","weekDay", "pickupHour","pickupBcode","dropoffBcode","distance","maxTemp","maxWind","maxPrecip")
+features  <- c("month","weekDay", "pickupHour","pickupNeighborhood","dropoffNeighborhood","distance","maxTemp","maxWind","maxPrecip")
 #"dropoffZcta"
 #"pickupZcta"
 
