@@ -21,7 +21,7 @@ nycShapeFile <- geojson_sf("data/shape/nyu-2451-34509-geojson.json")
 # Météo ==> package RIEM mais proxy EDF veut pas alors alors la source direct ==> https://mesonet.agron.iastate.edu/request/download.phtml
 # Extraction manuelle des données météo sur les 4 aéroports -JRB, LGA, NYC, JFK- les plus proches de NYC
 nycWeather <- read.csv2(file="data/NYC_weather.csv", sep=",", dec=".")
-
+#print "test""
 
 # TAXI############################################################################################################################### 
 # Parsing date et split jusqu'à la granularité horaire
