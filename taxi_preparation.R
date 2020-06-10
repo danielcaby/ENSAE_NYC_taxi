@@ -21,6 +21,7 @@ nycShapeFile <- geojson_sf("data/nyu-2451-34509-geojson.json")
 # Météo ==> package RIEM mais proxy EDF veut pas alors alors la source direct ==> https://mesonet.agron.iastate.edu/request/download.phtml
 # Extraction manuelle des données météo sur les 4 aéroports -JRB, LGA, NYC, JFK- les plus proches de NYC
 nycWeather <- read.csv2(file="data/NYC_weather.csv", sep=",", dec=".")
+nyc_zipcodeByNbhoods <- read_csv("data/nyc_zipcodeByNbhoods.csv")
 
 
 # TAXI############################################################################################################################### 
@@ -74,6 +75,20 @@ taxi <- taxi %>%
   select(-zcta)
 
 # Pour faire des tests rapides ==> https://www.coordonnees-gps.fr/
+
+# left join sur la base des zipcode pour récupérer le libellé des borough et neighborhood de pickup
+# https://www.health.ny.gov/statistics/cancer/registry/appendix/neighborhoods.htm
+
+taxi <- taxi %>% mutate(pickupZcta = as.numeric(pickupZcta))
+taxi <- left_join(taxi, nyc_zipcodeByNbhoods, by=c("pickupZcta" = "zipCode"))
+taxi <- taxi %>% rename(pickupBorough = borough)
+taxi <- taxi %>% rename(pickupNeighborhood = neighborhood)
+
+# left join sur la base des zipcode pour récupérer le libellé des borough et neighborhood de dropoff
+taxi <- taxi %>% mutate(dropoffZcta = as.numeric(dropoffZcta))
+taxi <- left_join(taxi, nyc_zipcodeByNbhoods, by=c("dropoffZcta" = "zipCode"))
+taxi <- taxi %>% rename(dropoffBorough = borough)
+taxi <- taxi %>% rename(dropoffNeighborhood = neighborhood)
 
 ########
 # TAXI + zipcode + distance####
