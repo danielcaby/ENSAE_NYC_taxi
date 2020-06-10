@@ -119,6 +119,11 @@ aggWeather <- nycWeather %>% group_by(wYear, wMonth, wDay, wHour) %>%
     maxWind = max(sped),
     maxPrecip = max(p01m))
 
+# Rajout de la variable isRain de type boolean = Est ce qu'il est tombé de la pluie à l'heure considérée ?
+aggWeather <- mutate(aggWeather, maxPrecip = as.numeric(maxPrecip))
+aggWeather <- mutate(aggWeather,
+                     isRain = ifelse(maxPrecip > 0, TRUE, FALSE))
+
 # ajout des données météo par jointure sur l'heure de départ
 taxi <- left_join(taxi, aggWeather, by=c("year"="wYear","month"="wMonth","day"="wDay","pickupHour"="wHour"))
 
