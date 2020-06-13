@@ -8,6 +8,8 @@ library(sf)
 library(geojsonsf)
 library(tidyr)
 library(dplyr)
+library(fuzzyjoin)
+
 
 ###############################################################################################################################
 # chargement des données
@@ -22,6 +24,29 @@ nycShapeFile <- geojson_sf("data/nyu-2451-34509-geojson.json")
 # Extraction manuelle des données météo sur les 4 aéroports -JRB, LGA, NYC, JFK- les plus proches de NYC
 nycWeather <- read.csv2(file="data/NYC_weather.csv", sep=",", dec=".")
 nyc_zipcodeByNbhoods <- read_csv("data/nyc_zipcodeByNbhoods.csv")
+
+
+# Evenements
+# https://data.ny.gov/City-Government/NYC-Permitted-Event-Information-Historical/bkfu-528j
+nycEvents <- data.table::fread(file="data/NYC_Permitted_Event_Information_-_Historical.csv",sep=",",header=TRUE)
+# --> https://data.ny.gov/City-Government/NYC-Permitted-Event-Information-Historical/bkfu-528j
+
+# Motor crashes
+nycCrashes <- data.table::fread(file="data/Motor_Vehicle_Collisions_-_Crashes.csv",sep=",",header=TRUE)
+# --> https://data.ny.gov/Public-Safety/Motor-Vehicle-Collisions-Crashes/h9gi-nx95
+
+# Traffic 
+nycTrafficVolume <- data.table::fread(file="data/Annual_Average_Daily_Traffic__AADT___Beginning_1977.csv",sep=",",header=TRUE)
+# --> https://data.ny.gov/Transportation/Annual-Average-Daily-Traffic-AADT-Beginning-1977/6amx-2pbv
+# --> KO : On a qu'une somme annuelle
+
+nycTrafficVolume <- data.table::fread(file="data/Traffic_Volume_Counts__2014-2018_.csv",sep=",",header=TRUE)
+# --> KO : On a que 34 jours de données sur S1 2016...Cancellation
+# --> + rattachement au segment ID ?
+
+nycBusDelay <- data.table::fread(file="data/Bus_Breakdown_and_Delays.csv",sep=",",header=TRUE)
+# --> https://data.ny.gov/Transportation/Bus-Breakdown-and-Delays/ez4e-fazm
+
 
 
 # TAXI############################################################################################################################### 
@@ -74,6 +99,9 @@ taxi <- taxi %>%
   select(-bcode) %>%
   select(-zcta)
 
+features_to_remove <- c("id","bbox.x","note.x","geometry","bbox.y","note.y")
+taxi <- taxi %>% select(-features_to_remove)
+
 # Pour faire des tests rapides ==> https://www.coordonnees-gps.fr/
 
 # left join sur la base des zipcode pour récupérer le libellé des borough et neighborhood de pickup
@@ -120,21 +148,159 @@ aggWeather <- nycWeather %>% group_by(wYear, wMonth, wDay, wHour) %>%
     maxPrecip = max(p01m))
 
 # Rajout de la variable isRain de type boolean = Est ce qu'il est tombé de la pluie à l'heure considérée ?
-aggWeather <- mutate(aggWeather, maxPrecip = as.numeric(maxPrecip))
-aggWeather <- mutate(aggWeather,
+taxi <- mutate(taxi, maxPrecip = as.numeric(maxPrecip))
+taxi <- mutate(taxi,
                      isRain = ifelse(maxPrecip > 0, TRUE, FALSE))
 
 # ajout des données météo par jointure sur l'heure de départ
 taxi <- left_join(taxi, aggWeather, by=c("year"="wYear","month"="wMonth","day"="wDay","pickupHour"="wHour"))
 
-# Trafic / todo
 
-# Events / todo : voir fichier Louis Pierre ?
+
+# -----------------Evènements-DEB----------------------------
+# On supprime les caracteres speciaux dans le nommage des colonnes
+names(nycEvents) <- gsub("[[:punct:]]","",make.names(names(nycEvents)))
+
+# on filtre sur les évènements dans la période qui nous intéresse
+nycEvents$StartDateTime<- as.POSIXct(strptime(nycEvents$StartDateTime, "%m/%d/%Y %I:%M:%S %p"))
+nycEvents$EndDateTime<- as.POSIXct(strptime(nycEvents$EndDateTime, "%m/%d/%Y %I:%M:%S %p"))
+period <- interval(date('2016-01-01'),date('2016-06-30'))
+filtered2k16nycEvents<-nycEvents %>% filter(StartDateTime %within% period | EndDateTime %within% period)
+
+# Idée en plus / à tester si on a le temps dans les étapes suivantes : On pourrait filtrer sur le StreetClosureType != NA ?
+
+# On compte les évènements qui débutent / jour
+aggfiltered2k16nycEvents <- filtered2k16nycEvents %>% group_by(jour = date(StartDateTime), EventBorough) %>%
+  summarise(
+    nbEvents = n_distinct(EventID)) 
+
+# Juste pour assurer la jointure / fucking dates
+aggfiltered2k16nycEvents <- mutate(aggfiltered2k16nycEvents, 
+                                   year = year(jour),
+                                   month = month(jour),
+                                   day = day(jour))
+
+# on fait une jointure pour ajouter le nombre d'évènement qui débute par jour et par borough 
+taxi <- left_join(taxi, aggfiltered2k16nycEvents, by=c("pickupBorough"="EventBorough","year"="year","month"="month","day"="day"))
+taxi <- taxi %>% mutate(pickupNbEvents = nbEvents)
+taxi <- taxi %>% select(-jour) %>% select(-nbEvents)
+taxi <- left_join(taxi, aggfiltered2k16nycEvents, by=c("dropoffBorough"="EventBorough","year"="year","month"="month","day"="day"))
+taxi <- taxi %>% mutate(dropoffNbEvents = nbEvents.y)
+taxi <- taxi %>% select(-jour) %>% select(-nbEvents)
+
+# Attention : on rate environ 10 % = ceux qui se tiennent sur plusieurs jours... on pourrait essayer de les comptabiliser avec un peu plus de temps :
+# blankEventCalendar <- data.frame(date = seq.Date(from =as.Date("2016-01-01 00:00", "%Y-%m-%d %H:%M"), to=as.Date("2016-06-30 00:00", "%Y-%m-%d %H:%M"), by="day"), borough = "Manhattan", nbEvents = 0) %>% 
+#   bind_rows(data.frame(date = seq.Date(from =as.Date("2016-01-01 00:00", "%Y-%m-%d %H:%M"), to=as.Date("2016-06-30 00:00", "%Y-%m-%d %H:%M"), by="day"), borough = "Brooklyn", nbEvents = 0)) %>% 
+#   bind_rows(data.frame(date = seq.Date(from =as.Date("2016-01-01 00:00", "%Y-%m-%d %H:%M"), to=as.Date("2016-06-30 00:00", "%Y-%m-%d %H:%M"), by="day"), borough = "Queens", nbEvents = 0)) %>% 
+#   bind_rows(data.frame(date = seq.Date(from =as.Date("2016-01-01 00:00", "%Y-%m-%d %H:%M"), to=as.Date("2016-06-30 00:00", "%Y-%m-%d %H:%M"), by="day"), borough = "Bronx", nbEvents = 0)) %>% 
+#   bind_rows(data.frame(date = seq.Date(from =as.Date("2016-01-01 00:00", "%Y-%m-%d %H:%M"), to=as.Date("2016-06-30 00:00", "%Y-%m-%d %H:%M"), by="day"), borough = "Staten Island", nbEvents = 0))
+# 
+# nycEventCalendar <- fuzzy_left_join(
+#   blankEventCalendar, filtered2k16nycEvents,
+#   by = c(
+#     "borough" = "EventBorough",
+#     "date" = "StartDateTime",
+#     "date" = "EndDateTime"
+#   ),
+#   match_fun = list(`==`, `>=`, `<=`)
+# )
+# -----------------Evènements-FIN----------------------------
+
+# -----------------Crashes - Deb----------------------------
+# On supprime les caracteres speciaux dans le nommage des colonnes
+names(nycCrashes) <- gsub("[[:punct:]]","",make.names(names(nycCrashes)))
+
+# on filtre sur les évènements dans la période qui nous intéresse
+nycCrashes$dateCrash <- as.POSIXct(strptime(paste(nycCrashes$CRASHDATE,nycCrashes$CRASHTIME, sep=" "), "%m/%d/%Y %H:%M"))
+period <- interval(date('2016-01-01'),date('2016-06-30'))
+filtered2k16nycCrashes<-nycCrashes %>% filter(dateCrash %within% period)
+
+filtered2k16nycCrashes <- filtered2k16nycCrashes %>% filter(!is.na(ZIPCODE))
+
+# Juste pour assurer la jointure / fucking dates
+filtered2k16nycCrashes <- mutate(filtered2k16nycCrashes, 
+                                   year = year(dateCrash),
+                                   month = month(dateCrash),
+                                   day = day(dateCrash),
+                                   hour = hour(dateCrash))
+
+# On compte les accidents par heure et par zipcode
+aggfiltered2k16nycCrashesbyHour <- filtered2k16nycCrashes %>% group_by(year, month, day, hour, ZIPCODE) %>%
+  summarise(
+    nbCrashesbyHour = n_distinct(COLLISIONID)) 
+
+# on fait une jointure pour ajouter le nombre de crash par heure et zipcode de pickup et dropoff
+taxi <- left_join(taxi, aggfiltered2k16nycCrashesbyHour, by=c("pickupZcta"="ZIPCODE","year"="year","month"="month","day"="day", "pickupHour"="hour"))
+taxi <- taxi %>% mutate(pickupNbCrashesbyHour = nbCrashesbyHour)
+taxi <- taxi %>% select(-nbCrashesbyHour)
+taxi <- left_join(taxi, aggfiltered2k16nycCrashesbyHour, by=c("dropoffZcta"="ZIPCODE","year"="year","month"="month","day"="day", "dropoffHour"="hour"))
+taxi <- taxi %>% mutate(dropoffNbCrashesbyHour = nbCrashesbyHour)
+taxi <- taxi %>% select(-nbCrashesbyHour)
+
+
+# On compte les accidents par jour et par zipcode
+aggfiltered2k16nycCrashesbyDay <- filtered2k16nycCrashes %>% group_by(year, month, day, ZIPCODE) %>%
+  summarise(
+    nbCrashesbyDay = n_distinct(COLLISIONID)) 
+# on fait une jointure pour ajouter le nombre de crash par jour et zipcode
+taxi <- left_join(taxi, aggfiltered2k16nycCrashesbyDay, by=c("pickupZcta"="ZIPCODE","year"="year","month"="month","day"="day"))
+taxi <- taxi %>% mutate(pickupNbCrashesbyDay = nbCrashesbyDay)
+taxi <- taxi %>% select(-nbCrashesbyDay)
+taxi <- left_join(taxi, aggfiltered2k16nycCrashesbyDay, by=c("dropoffZcta"="ZIPCODE","year"="year","month"="month","day"="day"))
+taxi <- taxi %>% mutate(dropoffNbCrashesbyDay = nbCrashesbyDay)
+taxi <- taxi %>% select(-nbCrashesbyDay)
+
+
+# on fait une jointure pour ajouter le nombre d'évènement qui débute par jour et par borough 
+# Idée en plus / à tester si on a le temps dans les étapes suivantes : on pourrait pondérer en fonction de la gravité : mortalité / nombre de véhicules impliqués ?
+# Idée en plus / à tester si on a le temps dans les étapes suivantes : on pourrait aussi utiliser les coordonnées géographiques de l'accident plus précisément ?
+# -----------------Crashes-FIN----------------------------
+
+# -----------------Get Bus Delay information - Deb----------------------------
+# On supprime les caracteres speciaux dans le nommage des colonnes
+names(nycBusDelay) <- gsub("[[:punct:]]","",make.names(names(nycBusDelay)))
+
+# on filtre sur la raison 'Heavy traffic'
+filteredBusDelay <- nycBusDelay %>% filter(Reason == 'Heavy Traffic')
+
+# on filtre sur les évènements dans la période qui nous intéresse
+filteredBusDelay$dateDelay <- as.POSIXct(strptime(filteredBusDelay$OccurredOn, "%m/%d/%Y %I:%M:%S %p"))
+
+period <- interval(date('2016-01-01'),date('2016-06-30'))
+filtered2k16BusDelay <-filteredBusDelay %>% filter(dateDelay %within% period)
+
+filtered2k16BusDelay <- filtered2k16BusDelay %>% filter(!is.null(Boro))
+
+# Juste pour assurer la jointure / fucking dates
+filtered2k16BusDelay <- mutate(filtered2k16BusDelay, 
+                                 year = year(dateDelay),
+                                 month = month(dateDelay),
+                                 day = day(dateDelay),
+                                 hour = hour(dateDelay))
+
+# On compte les accidents par heure et par zipcode
+aggFiltered2k16BusDelay <- filtered2k16BusDelay %>% group_by(year, month, day, hour, Boro) %>%
+  summarise(
+    nbBusDelayedHeavyTrafficbyHour = n_distinct(BusbreakdownID)) 
+
+# Rajout de la variable isHeavyTraffic de type boolean = Est ce qu'il y a plus de deux (mean) retards / h
+aggFiltered2k16BusDelay <- mutate(aggFiltered2k16BusDelay,
+                     isHeavyTraffic = ifelse(nbBusDelayedHeavyTrafficbyHour > 2, TRUE, FALSE))
+
+# On ajoute le nb d'accidents par heure et par borough de départ + indicateur d'heavy traffic
+taxi <- left_join(taxi, aggFiltered2k16BusDelay, by=c("year"="year","month"="month","day"="day","pickupBorough"="Boro"))
+taxi <- taxi %>% mutate(pickupNbBusDelayedHeavyTrafficbyHour = nbBusDelayedHeavyTrafficbyHour)
+taxi <- taxi %>% mutate(isFromBoroughHeavyTraffic = isHeavyTraffic)
+taxi <- taxi %>% select(-isHeavyTraffic) %>% select(-nbBusDelayedHeavyTrafficbyHour)
+# On ajoute le nb d'accidents par heure et par borough d'arrivée + indicateur d'heavy traffic
+taxi <- left_join(taxi, aggFiltered2k16BusDelay, by=c("year"="year","month"="month","day"="day","dropoffBorough"="Boro"))
+taxi <- taxi %>% mutate(dropoffNbBusDelayedHeavyTrafficbyHour = nbBusDelayedHeavyTrafficbyHour)
+taxi <- taxi %>% mutate(isToBoroughHeavyTraffic = isHeavyTraffic)
+taxi <- taxi %>% select(-isHeavyTraffic) %>% select(-nbBusDelayedHeavyTrafficbyHour)
+
+# A voir comment on aggrège les données de crashes, bus delay by heavy traffic...
+# -----------------Get Bus Delay information - Deb----------------------------
 
 # Sauvegarde du jeu de données
-write.table(taxi,file="data/taxiTrainDataSet.csv",sep=";", row.names=FALSE)
-save.image(file = 'taxiTrainDataSet.rdata')
-
-# Filtrage données / todo
-
-# Train Model > test et évaluation / todo
+# write.table(taxi,file="data/taxiTrainDataSet.csv",sep=";", row.names=FALSE)
+saveRDS(taxi, file = 'data/nycTaxiTrainDataSet.rds')
