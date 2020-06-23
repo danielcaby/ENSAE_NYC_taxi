@@ -15,13 +15,37 @@ shinyServer(function(input, output, session) {
   
     # Filtrage en fonction des années/mois/jours sélectionnés
     filteredCountDataByHour <- reactive({
-        count(taxiDf %>%
-            filter(pickupDay == input$dayInput) %>%
-              filter(pickupMonth == input$monthInput) %>%
-                filter(pickupYear == input$yearInput) %>%
+        count(full_taxi %>%
+            filter(day == input$dayInput) %>%
+              filter(month == input$monthInput) %>%
+                filter(year == input$yearInput) %>%
                   group_by(pickupHour))
 
     })
+    
+    #ajout des infos journées
+    filtereddata <- reactive({
+      full_taxi %>%
+        filter(day == input$dayInput) %>%
+        filter(month == input$monthInput) %>%
+        filter(year == input$yearInput) %>%
+        select(distance,trip_duration,weekDay,maxPrecip,maxTemp,maxWind)%>% 
+        dplyr::summarise(duree_moy = round(mean(trip_duration,na.rm=T),0),
+                         distance = round(mean(distance,na.rm=T),2),
+                         Jour_semaine = unique(weekDay),
+                         pluie = round(mean(maxPrecip,na.rm=T),2),
+                         temperature = round(mean(maxTemp,na.rm=T),2),
+                         vent = round(mean(maxWind,na.rm=T),2))%>%
+        dplyr::rename("Durée moyenne du trajet en secondes" = 1,
+                      "Distance en km" = 2,
+                      "Jour de la semaine" =3,
+                      "Pluie" = 4,
+                      "Température" = 5,
+                      "Vent" = 6)
+    })
+    
+    output$filtereddataDT <- shiny::renderDataTable({filtereddata()})
+    
 
     # Histo nb courses / heure pour la journée sélectionnée par l'utilisateur 
     output$myPlot <- renderPlotly({
@@ -121,22 +145,26 @@ shinyServer(function(input, output, session) {
     # Description heures de départ
     output$hours_dur <- renderPlotly({
       p <- tds %>%
-        mutate(pickupHour=as.factor(pickupHour))%>%
+        dplyr::mutate(pickupHour=as.factor(pickupHour))%>%
         ggplot()+
         aes(x=pickupHour,y=trip_duration)+
-        geom_boxplot(outlier.size = NULL,outlier.shape = NA)+
+        geom_boxplot(outlier.shape = NA)+
         ylim(0,2000)+
         ggtitle("Temps de trajet selon l'heure de départ")+
         ylab("Durée du trajet (en secondes)")+
         xlab("Heure de départ du trajet")
       
       p <- ggplotly(p)
+      # p <- plotly_build(p)
+      # for(i in 1:length(p$x$data)) {
+      #   p$x$data[[i]]$marker$opacity = 0
+      # }
     })
 
     # Description heures de départ
     output$hours_dist <- renderPlotly({
       p <- tds %>%
-        mutate(pickupHour=as.factor(pickupHour))%>%
+        dplyr::mutate(pickupHour=as.factor(pickupHour))%>%
         ggplot()+
         aes(x=pickupHour,y=distance)+
         geom_boxplot(outlier.size = NULL,outlier.shape = NA)+
@@ -177,11 +205,15 @@ shinyServer(function(input, output, session) {
     })
     
     # description weekdays distance
-    output$wd_dist <- renderPlot({
-      boxplot(distance~weekDay,
-              data=tds,
-              main="Durée du trajet selon le jour de la semaine",
-              outline=FALSE)
+    output$wd_dist <- renderPlotly({
+      # boxplot(distance~weekDay,
+      #         data=tds,
+      #         main="Durée du trajet selon le jour de la semaine",
+      #         outline=FALSE)
+      plot_ly(tds, y = ~distance, color = ~weekDay, type = "box", boxpoints = F)%>%
+        layout(title = "Durée du trajet selon le jour de la semaine",
+               xaxis = list(title = "Distance du trajet (en km)"),
+               yaxis = list(title = "Jour de la semaine"))
     })
     
     # Influence weekdays coeff reg
@@ -203,20 +235,20 @@ shinyServer(function(input, output, session) {
     output$map_dens <- renderLeaflet({
       #on définit les coupures (quantiles) et la palette de couleurs 
       #(impossible de faire marcher leaflet sans palette prédéfinie)
-      bins <- c(0, 3, 20, 316, 731, 2000, Inf)
+      bins <- c(0, 13, 75, 1411, 7097, 50000, Inf)
       pal <- colorBin("YlOrRd", domain = data_map1$nb_trips, bins = bins)
       
       #On définit ce que s'affiche sur la carte
       labels <- sprintf(
         "<strong>%s</strong><br/>%g trajets effectués",
-        data_map1$zcta, data_map1$nb_trips
+        data_map1_bis$zcta, data_map1_bis$nb_trips
       ) %>% lapply(htmltools::HTML)
       
       m <- leaflet() %>%
         addProviderTiles(providers$Stamen.TonerLite,
                          options = providerTileOptions(noWrap = TRUE)
         ) %>%
-        addPolygons(data=data_map1,
+        addPolygons(data=data_map1_bis,
                     fillColor = ~pal(nb_trips),
                     weight = 2,
                     opacity = 1,
@@ -237,4 +269,19 @@ shinyServer(function(input, output, session) {
         addLegend(pal = pal, values = data_map1$nb_trips, opacity = 0.7, title = NULL,
                    position = "bottomright")
     })
+    
+    # On fait une prévision du modèle
+    data_prediction <- reactive({
+      data.frame("distance"= input$distance_input,
+                 "month" = as.character(input$month_input),
+                 "weekDay" = as.character(input$wday_input),
+                 "pickupHour" = as.character(input$hour_input),
+                 "pickupZcta" = as.character(input$zcta_input))
+    })
+    
+    model_pred <- reactive({
+      predict(rf_taxi, data_prediction())
+    })
+
+    output$prediction <- renderPrint(model_pred())
 })
