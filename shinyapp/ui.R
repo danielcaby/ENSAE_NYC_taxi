@@ -25,7 +25,9 @@ shinyUI(
 
                                        ),
                                        column(width = 8,
-                                              plotlyOutput('myPlot',height = 350))
+                                              plotlyOutput('myPlot',height = 350),
+                                              br(),
+                                              shiny::dataTableOutput('filtereddataDT'))
                                      )
                             ),
                # Onglet stats desc
@@ -52,7 +54,7 @@ shinyUI(
                           tabPanel("Influence du jour de la semaine",
                                    tabsetPanel(
                                      tabPanel("Sur la durée",plotOutput("wd_dur")),
-                                     tabPanel("Sur la distance",plotOutput("wd_dist")),
+                                     tabPanel("Sur la distance",plotlyOutput("wd_dist")),
                                      tabPanel("Sur le coef. de regression",plotlyOutput("wd_reg"))
                                    )),
                           #tabPanel("Carte de la densité des taxis _ to delete",leafletOutput("myMap")),
@@ -61,21 +63,43 @@ shinyUI(
                ), 
                
                # Onglet simulation à partir du modèle entrainé. 
-               tabPanel("Résultats de la modélisation", 
+               tabPanel("Prédiction", 
                         
-                        fluidRow(
-                          # premier colonne
-                          column(width = 3, 
-                                 # wellPanel pour griser
-                                 wellPanel(
-                                   h1("to do")
+                        fluidPage(
+                          column(width = 4, 
+                                 sliderInput("distance_input",
+                                             label = "La distance du trajet est de : ",
+                                             min = 1,
+                                             max = 30,
+                                             value = 3),
+                                 sliderInput("month_input",
+                                                        label = "Mois de l'année : ",
+                                                        min = 1,
+                                                        max = 6,
+                                                        value = 1),
+                                 sliderInput("wday_input",
+                                             label = "Jour de la semaine : ",
+                                             min = 1,
+                                             max = 7,
+                                             value = 1),
+                                 sliderInput("hour_input",
+                                             label = "Heure de la prise en charge : ",
+                                             min = 0,
+                                             max = 23,
+                                             value = 14),
+                                 selectInput("zcta_input", "Code postal (zcta) : ", choices = zctaSelectListChoices)
+                                 
+                          ),
+                          column(width = 8,
+                                 h2("Avec les paramètres selectionnés, la durée (en secondes) estimée de votre trajet est de : "),
+                                 br(),
+                                 h3(textOutput('prediction')),
+                                 br(),
+                                 br(),
+                                 br(),
+                                 div(img(src = "img/call_nyct.jpg"), style="text-align: center;")
                                  )
-                          ), 
-                          # deuxieme colonne
-                          column(width = 9, 
-                                 h1("Feed me!")
-                                 )
-                          )
+                        )
                         )
                )
     )
