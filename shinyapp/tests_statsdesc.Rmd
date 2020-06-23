@@ -1,0 +1,90 @@
+---
+title: "tests taxi desc"
+author: "Daniel CABY"
+date: "22 juin 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(shiny)
+library(leaflet)
+library(dplyr)
+library(plotly)
+library(colourpicker)
+library(rAmCharts)
+library(shinythemes)
+library(sf)
+load(file='data_sampled3.rdata')
+tds <- data_sampled
+```
+
+## Différents tests sur les variables
+
+### influence de la compagnie de taxi
+
+
+```{r}
+tds %>% 
+  group_by(vendor_id) %>% 
+  summarize(dur = mean(trip_duration,na.rm = T))
+```
+
+### nb passagers
+
+```{r}
+tds %>% 
+  group_by(passenger_count) %>% 
+  summarize(dur = mean(trip_duration,na.rm = T))
+```
+
+### Meteo
+
+####wind
+
+```{r}
+plot(tds$maxWind,tds$trip_duration)
+abline(lm(tds$trip_duration~tds$maxWind),col="red")
+
+plot(tds$maxWind,tds$distance)
+abline(lm(tds$distance~tds$maxWind),col="red")
+```
+
+### precip
+
+```{r}
+plot(tds$maxPrecip,tds$trip_duration)
+abline(lm(tds$trip_duration~tds$maxPrecip),col="red")
+
+plot(tds$maxPrecip,tds$distance)
+abline(lm(tds$distance~tds$maxPrecip),col="red")
+```
+
+
+### temp
+
+```{r}
+plot(tds$maxTemp,tds$trip_duration)
+abline(lm(tds$trip_duration~tds$maxTemp),col="red")
+
+plot(tds$maxTemp,tds$distance)
+abline(lm(tds$distance~tds$maxTemp),col="red")
+```
+
+## retard bus
+
+```{r}
+plot(tds$pickupNbBusDelayedHeavyTrafficbyHour,tds$trip_duration)
+abline(lm(tds$trip_duration~tds$pickupNbBusDelayedHeavyTrafficbyHour),col="red")
+```
+
+## nb events
+
+```{r}
+plot(tds$pickupNbEvents,tds$trip_duration)
+abline(lm(tds$trip_duration~tds$pickupNbEvents),col="red")
+
+plot(tds$pickupNbEvents,tds$distance)
+abline(lm(tds$distance~tds$pickupNbEvents),col="red")
+```
+
